@@ -36,29 +36,46 @@ app.use((req, res, next) => {
   next();
 });
 
+// For Vercel, we need to detect serverless environment
+const isServerless = process.env.VERCEL === '1';
+
+// IIFE for setting up the server
 (async () => {
-  const server = await registerRoutes(app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+  try {
+    const server = await registerRoutes(app);
+    
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      
+      log(`Error: ${err.message || 'Unknown error'}`);
+      res.status(status).json({ message });
+    });
+    
+    // importantly only setup vite in development and after
+    // setting up all the other routes so the catch-all route
+    // doesn't interfere with the other routes
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+    
+    // Only start the server if not in serverless environment
+    if (!isServerless) {
+      // Use PORT from environment variable for Vercel, fallback to 3000
+      const port = process.env.PORT || 3000;
+      server.listen(port, () => {
+        log(`serving on port ${port}`);
+      });
+    }
+  } catch (error) {
+    console.error('Server initialization error:', error);
+    if (!isServerless) {
+      process.exit(1);
+    }
   }
-
-  // Use PORT from environment variable for Vercel, fallback to 3000
-  const port = process.env.PORT || 3000;
-  server.listen(port, () => {
-    log(`serving on port ${port}`);
-  });
 })();
+
+// Export the Express app for serverless environments
+export default app;
